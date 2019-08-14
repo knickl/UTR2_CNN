@@ -8,11 +8,15 @@ from datetime import timedelta
 from tqdm import tqdm
 import io
 import sys
+import pandas as pd
+import pickle as pl
+import copy
+
 
 # --- --- --- --- --- --- --- #
 # --- --- --- --- --- --- --- #
 # --- --- --- --- --- --- --- #
-# --- --- DEFINE --- ---
+# --- --- DEFINE  --- --- --- #
 
 def normalize(array):
 	# A Function that Normalizes an Array by simple Min/Max Normalization
@@ -31,15 +35,30 @@ def Total_TimeUNIX(DynamicSpectrum,Total_Seconds):
 	Total_Time = datetime.utcfromtimestamp(int(DynamicSpectrum['start_time'])).strftime(dtfmt),(datetime.utcfromtimestamp(int(DynamicSpectrum['start_time'])) + timedelta(seconds=Total_Seconds)).strftime(dtfmt)
 	return Total_Time 
 
-def Total_Time(DynamicSpectrum):
+def Total_Time_old(DynamicSpectrum):
 	# A Function to define a datetime.dateime Object for Start and Stop of the Measurement
 	# Inputs:
 	# Output:
 	Total_Seconds = DynamicSpectrum['TNS']*(DynamicSpectrum['millisec']/1000) #total time of a sample in seconds
 	Total_Time = Total_TimeUNIX(DynamicSpectrum,Total_Seconds)
-	DynamicSpectrum.update({'Total_Time' : Total_Time})
+	DynamicSpectrum['Total_Time'] =  Total_Time
 
 	return DynamicSpectrum
+
+
+def Total_Time(DynamicSpectrum):
+	# A Function to define a datetime.dateime Object for Start and Stop of the Measurement
+	# Inputs:
+	# Output:
+	TNS = int(DynamicSpectrum['TNS'])
+	start_time = datetime.utcfromtimestamp(int(DynamicSpectrum['start_time']))
+	end_time = start_time + timedelta(seconds=TNS/10)
+	dtfmt='%d.%m.%Y %H.%M.%S' # timeformat
+	Total_Time = (start_time.strftime(dtfmt),end_time.strftime(dtfmt))	
+	DynamicSpectrum['Total_Time'] =  Total_Time
+	return DynamicSpectrum
+
+
 
 def Time_IDX(DynamicSpectrum,pad):
 	# A Function that calculates the index in the Dynamic Spectrum when a Burst happened
@@ -78,7 +97,7 @@ def Pad_Time(DynamicSpectrum,seconds):
 	# Outputs:
 	dtfmt='%d.%m.%Y %H.%M.%S' # timeformat	
 	BurstTime_Padded = (datetime.strptime(DynamicSpectrum['BurstTime'][0], dtfmt) - timedelta(0,seconds[0])).strftime(dtfmt),(datetime.strptime(DynamicSpectrum['BurstTime'][1], dtfmt) + timedelta(0,seconds[1])).strftime(dtfmt)	
-	DynamicSpectrum.update({'BurstTime_Padded' : BurstTime_Padded})
+	DynamicSpectrum['BurstTime_Padded'] =  BurstTime_Padded
 	return DynamicSpectrum
 
 def DynamicSpectrum_cutter(DynamicSpectrum,idx):
@@ -89,11 +108,14 @@ def DynamicSpectrum_cutter(DynamicSpectrum,idx):
 	# 'DynamicSpectrum'			A Dictionary with lot of info and a cutted DSP
 
 
-	#DynamicSpectrum.update(DSP =  DynamicSpectrum['DSP'][:,idx[0]:idx[1]])
 	DSP = DynamicSpectrum['DSP'][:,idx[0]:idx[1]]
 
 	if not DSP.shape[1] == 0:
-		DynamicSpectrum.update(DSP = DSP)
+		DynamicSpectrum['DSP_CUTTED'] = DSP
+	else:
+		DSP = DynamicSpectrum['DSP'][:,int(idx[0]/10):int(idx[1]/10)]
+		DynamicSpectrum['DSP_CUTTED'] = DSP
+
 	return DynamicSpectrum
 
 
@@ -107,6 +129,7 @@ def save(fname,path,source_path):
 
 	x = False
 	Burst_Parameters = timestampsIO(source_path + '/timestamps.ts')[1:]
+
 	for BParams in Burst_Parameters:
 
 		BurstTime = BParams['BurstTime']
@@ -114,18 +137,225 @@ def save(fname,path,source_path):
 		if Test_IfIsInTime(DynamicSpectrum,BurstTime):
 			destination_path = '/media/WDSSD/MachineLearning/UTR-2/TRAIN'		
 			DynamicSpectrum.update(BParams)
-			DynamicSpectrum.update({'Label' : 'TRAIN'})
-			saveTRAIN(DynamicSpectrum,fname,path,source_path,destination_path)
-			x = True
+
+			#DynamicSpectrum.update({'Label' : 'TRAIN'})
+			DynamicSpectrum['Label'] = 'TRAIN'
+			Prepsave(DynamicSpectrum,fname,path,source_path,destination_path)
+			x = True	
+
 	if not x:
 		destination_path = '/media/WDSSD/MachineLearning/UTR-2/TEST'
-		DynamicSpectrum.update({'Label' : 'TEST'})
-		saveTEST(DynamicSpectrum,fname,path,source_path,destination_path)
+		#DynamicSpectrum.update({'Label' : 'TEST'})
+		DynamicSpectrum['Label'] = 'TEST'
+		#Prepsave(DynamicSpectrum,fname,path,source_path,destination_path)
 
 	return	
 
+def DSP_IMAGE(fname,path,source_path):
 
-def saveTEST(DynamicSpectrum,fname,path,source_path,destination_path):
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+	DynamicSpectrum['Label'] = 'TEST'
+
+	
+	print(DynamicSpectrum['start_time'])
+	title = DynamicSpectrum['Total_Time'][0] + ' until '+ DynamicSpectrum['Total_Time'][1] + ' [UT]'	
+	fig,ax = plt.subplots()	
+	ax.pcolormesh(DynamicSpectrum['DSP'],cmap='gist_ncar')
+	ax.set_yticklabels([])
+	ax.set_yticklabels([8., 13., 18., 23., 28., 33.])
+	ax.set_ylabel('Frequency [kHz]')		
+	timevec = TimeVector(DynamicSpectrum,'TEST')
+	ax.set_xticklabels([])
+	#ax.axis('tight')
+	#ax.axis('off')
+	#fig.subplots_adjust(top=1.0)
+	#fig.subplots_adjust(bottom=0.0)
+	#fig.subplots_adjust(left=0.0)
+	#fig.subplots_adjust(right=1.0)
+	ax.set_xticklabels(timevec)
+	ax.set_ylabel('Time [HH:MM:SS]')
+	ax.set_title(title)
+
+	plt.show()
+
+	
+
+
+	return
+
+
+
+
+def getDSP_DATAFRAME(fname,path,source_path):
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+	DSP_DATAFRAME = []
+	Burst_Parameters = timestampsIO(source_path + '/timestamps.ts')[1:]
+
+	# Create a temporary DSP Array that can be resized for every iteration if a Burst is found in the spectrum.
+	# Delte it afterwards
+	DSP_TMP = np.copy(DynamicSpectrum['DSP'])
+	x = False
+	for BParams in Burst_Parameters:
+
+		BurstTime = BParams['BurstTime']
+		# Test if Burst is in Measurement Timewindow
+		if Test_IfIsInTime(DynamicSpectrum,BurstTime):
+			#Add Burst Parameters to current dynamic Spectrum
+			DynamicSpectrum = {**DynamicSpectrum, **BParams}
+			DynamicSpectrum['DSP'] = DSP_TMP
+
+			DynamicSpectrum['Label'] = 'TRAIN'
+			Pad_Time(DynamicSpectrum,(0,0))
+			if Test_IfIsInTime(DynamicSpectrum,DynamicSpectrum['BurstTime_Padded']):
+				DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,True)) #cut out the burst from the current array
+			else:
+				DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,False)) #cut out the burst from the current array
+			
+			if DynamicSpectrum['DSP'].shape[1]:
+				if DynamicSpectrum['DSP'].shape[1] > 240 :
+					resizeDSP = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (640,240), interpolation = cv2.INTER_CUBIC)
+					DynamicSpectrum['DSP'] = resizeDSP	
+
+			if DynamicSpectrum['DSP_CUTTED'].shape[1]:
+				if DynamicSpectrum['DSP_CUTTED'].shape[1] > 5:
+					resizeDSP = cv2.resize(DynamicSpectrum['DSP_CUTTED'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
+					DynamicSpectrum['DSP_CUTTED'] = resizeDSP
+
+			x = True	
+			DSP_DATAFRAME = np.append(DSP_DATAFRAME,DynamicSpectrum)	
+	del DSP_TMP
+
+	if not x:
+		DynamicSpectrum['Label'] = 'TEST'
+		if DynamicSpectrum['DSP'].shape[1]:
+			if DynamicSpectrum['DSP'].shape[1] > 240 :
+				resizeDSP = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (640,240), interpolation = cv2.INTER_CUBIC)
+				DynamicSpectrum['DSP'] = resizeDSP
+				DSP_DATAFRAME = np.append(DSP_DATAFRAME,DynamicSpectrum)
+
+	fn = os.path.basename(fname)
+	name = os.path.splitext(fn)[0]		
+	msg = f"'{name}': Framed"
+	print(msg, end='\n')
+
+
+	return DSP_DATAFRAME
+
+
+
+def get_compact_DATAFRAME(fname,path,source_path,stamps):
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+
+
+
+	DSP_DATAFRAME = []
+	DSP_TMP = np.copy(DynamicSpectrum['DSP'])
+
+
+	for tstamps in stamps:
+		if DynamicSpectrum['start_time'] == tstamps[0]:
+
+			DynamicSpectrum['DSP'] = DSP_TMP
+			DynamicSpectrum['DSP'] = DynamicSpectrum['DSP'][:,tstamps[2]:tstamps[3]]
+			DynamicSpectrum['Label'] = tstamps[1]
+			DynamicSpectrum['idx'] = [tstamps[2],tstamps[3]]
+			#DSP_DATAFRAME = np.append(DSP_DATAFRAME,DynamicSpectrum)
+			tmp = 	copy.deepcopy(DynamicSpectrum)
+			DSP_DATAFRAME.append(tmp)
+			del tmp
+	del DSP_TMP	
+
+
+	fn = os.path.basename(fname)
+	name = os.path.splitext(fn)[0]		
+	msg = f"'{name}': Framed"
+	print(msg, end='\n')
+
+
+	return DSP_DATAFRAME
+
+
+
+
+
+def getDSP_BrightIII(fname,path,source_path):
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+	DSP_DATAFRAME = []
+	Burst_Parameters = timestampsIO(source_path + '/timestamps.ts')[1:]
+
+	for BParams in Burst_Parameters:
+
+		BurstTime = BParams['BurstTime']
+		# Test if Burst is in Measurement Timewindow
+		if Test_IfIsInTime(DynamicSpectrum,BurstTime):
+			#Add Burst Parameters to current dynamic Spectrum
+			DynamicSpectrum = {**DynamicSpectrum, **BParams}
+
+			DynamicSpectrum['Label'] = 'TEST'
+
+			print(DynamicSpectrum['start_time'])
+			title = DynamicSpectrum['Total_Time'][0] + ' --- '+ DynamicSpectrum['Total_Time'][1] + ' \n' + DynamicSpectrum['BurstTime'][0] + ' --- ' +DynamicSpectrum['BurstTime'][1]
+			fig,ax = plt.subplots()	
+			ax.pcolormesh(DynamicSpectrum['DSP'],cmap='gist_ncar')
+			#ax.set_yticklabels([])
+			#ax.set_yticklabels([8., 13., 18., 23., 28., 33.])
+			#ax.set_ylabel('Frequency [kHz]')
+				
+			#timevec = TimeVector(DynamicSpectrum,'TEST')
+			#ax.set_xticklabels([])
+			#ax.axis('tight')
+			#ax.axis('off')
+			#fig.subplots_adjust(top=1.0)
+			#fig.subplots_adjust(bottom=0.0)
+			#fig.subplots_adjust(left=0.0)
+			#fig.subplots_adjust(right=1.0)
+			#ax.set_xticklabels(timevec)
+			#ax.set_ylabel('Time [HH:MM:SS]')
+			ax.set_title(title)
+
+			plt.show()
+
+
+	return 
+
+
+def Prepsave(DynamicSpectrum,fname,path,source_path,destination_path):
+	# A Function that prepares the actual Saving operation:
+	# Inputs:
+	# 'DynamicSpectrum'			A Dictionary Holding much information	
+	# 'fname'
+	# 'path'
+	# 'source_path'
+	# 'destination_path'
+	# Outputs:
+	# NONE
+
+	fn = os.path.basename(fname)
+	name = os.path.splitext(fn)[0]		
+
+	if DynamicSpectrum['Label'] == 'TRAIN':
+		Pad_Time(DynamicSpectrum,(0,0))
+		if Test_IfIsInTime(DynamicSpectrum,DynamicSpectrum['BurstTime_Padded']):
+			DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,True)) #cut out the burst from the current array
+		else:
+			DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,False)) #cut out the burst from the current array
+
+	sdir = path.replace(source_path,'') # the new Sub-directory 
+	save_File(DynamicSpectrum,name,destination_path,sdir)
+	#plotDSP(DynamicSpectrum)
+
+	return
+
+
+def saveTEST(DynamicSpectrum,fname,path,source_path,destination_path,resize):
 	# A Function that prepares the actual Saving operation:
 	# Inputs:
 	# 'DynamicSpectrum'			A Dictionary Holding much information	
@@ -139,12 +369,12 @@ def saveTEST(DynamicSpectrum,fname,path,source_path,destination_path):
 	fn = os.path.basename(fname)
 	name = os.path.splitext(fn)[0]
 	sdir = path.replace(source_path,'') # the new Sub-directory 
-	#save_File(DynamicSpectrum,name,destination_path,sdir)
+	save_File(DynamicSpectrum,name,destination_path,sdir,resize)
 	#plotDSP(DynamicSpectrum)
 
 	return
 
-def saveTRAIN(DynamicSpectrum,fname,path,source_path,destination_path):
+def saveTRAIN(DynamicSpectrum,fname,path,source_path,destination_path,resize):
 	# A Function that prepares the actual Saving operation:
 	# Inputs:
 	# 'DynamicSpectrum'
@@ -154,19 +384,16 @@ def saveTRAIN(DynamicSpectrum,fname,path,source_path,destination_path):
 	# 'destination_path'
 	# Outputs:
 	# NONE
-
-
 	fn = os.path.basename(fname)
 	name = os.path.splitext(fn)[0]	
-	Pad_Time(DynamicSpectrum,(5,0))
+	Pad_Time(DynamicSpectrum,(0,0))
 	if Test_IfIsInTime(DynamicSpectrum,DynamicSpectrum['BurstTime_Padded']):
 		DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,True)) #cut out the burst from the current array
 	else:
 		DynamicSpectrum = DynamicSpectrum_cutter(DynamicSpectrum,Time_IDX(DynamicSpectrum,False)) #cut out the burst from the current array
 	sdir = path.replace(source_path,'') # the new Sub-directory 
 
-	save_File(DynamicSpectrum,name,destination_path,sdir)
-
+	save_File(DynamicSpectrum,name,destination_path,sdir,resize)
 	#plotDSP(DynamicSpectrum)
 	return
 
@@ -181,21 +408,38 @@ def save_File(DynamicSpectrum,name,destination_path,sdir):
 	# NONE
 
 	ffname = destination_path + sdir + '/' + name #New Full Filename
+	
+	# Resize DSP and DSP_CUTTED Array to a 10th of the size:	
+	if DynamicSpectrum['DSP'].shape[1]:
+		if DynamicSpectrum['DSP'].shape[1] > 100 :
+			#ssize = round(DynamicSpectrum['DSP'].shape[1] / 10)
+			resizeDSP = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (250,50), interpolation = cv2.INTER_CUBIC)
+			DynamicSpectrum['DSP'] = resizeDSP
+			
+	if DynamicSpectrum['Label'] == 'TRAIN':
+		if DynamicSpectrum['DSP_CUTTED'].shape[1]:
+			if DynamicSpectrum['DSP_CUTTED'].shape[1] > 50:
+				#ssize = round(DynamicSpectrum['DSP_CUTTED'].shape[1] / 5)
+				resizeDSP = cv2.resize(DynamicSpectrum['DSP_CUTTED'].astype('float64'), (25,50), interpolation = cv2.INTER_CUBIC)
+				DynamicSpectrum['DSP_CUTTED'] = resizeDSP
+		
+	# Save individual Files	
 	os.makedirs(os.path.dirname(ffname), exist_ok=True) # create the directory if it does not exist already
 
-	if DynamicSpectrum['Label'] == 'TRAIN':
-			ffname = ffname + '__' + DynamicSpectrum['Label'] + '__' + DynamicSpectrum['date'] + '__' + DynamicSpectrum['time']
+	# Save in one large List (Dataframe)	
+	dfname = '/media/WDSSD/MachineLearning/UTR-2/DATA/dataframe.npy'
 
-	if not os.path.isfile(ffname+'.npy'):
-
-		if DynamicSpectrum['Label'] == 'TRAIN':
-			ffname = ffname + '__' + DynamicSpectrum['Label'] + '__' + DynamicSpectrum['date'] + '__' + DynamicSpectrum['time']			
-		np.save(ffname, DynamicSpectrum['DSP'])	
-		msg = f"'{ffname + '.npy'}': Saved"
+	
+	if not os.path.isfile(dfname):		
+		np.save(dfname,DynamicSpectrum)		
+		msg = f"'{name}': Saved"
 	else:
-		msg = f"'{ffname + '.npy'}': Already Existing"
+		dataframe = np.load(dfname)
+		lst = np.append(dataframe, DynamicSpectrum)
+		np.save(dfname,lst)		
+		
+		msg = f"'{name}': Saved"
 	print(msg, end='\n')
-
 	
 
 	if DynamicSpectrum['Label'] == 'TRAIN':
@@ -203,31 +447,6 @@ def save_File(DynamicSpectrum,name,destination_path,sdir):
 		f= open('/media/WDSSD/MachineLearning/UTR-2/savelog.txt','a+')
 		f.write(text)
 		f.close() 
-
-	return
-
-
-def saveFolder(files,path,source_path):
-
-	print('-----------')
-	DynamicSpectrumMaster = {}
-
-	files = [f for f in os.listdir(path) if os.path.isfile(os.path.join(path, f))]
-	for name in files:		
-		fname =  os.path.join(path, name)
-		ext = os.path.splitext(fname)[1]
-		if ext == '.dsp':
-			print(fname)
-
-			DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
-			DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
-
-			print(DynamicSpectrum['DSP_HEADER'][:,[0,1,2,3,-4,-3,-2,-1]])
-
-
-	#DynamicSpectrum = Total_Time(DynamicSpectrum)		
-
-
 	return
 
 def Create_DSP_NPY_data(source_path):
@@ -241,16 +460,181 @@ def Create_DSP_NPY_data(source_path):
 	for path, subdir, files in os.walk(source_path):
 		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
 			if files:
-				saveFolder(files,path,source_path)
-
+				#saveFolder(files,path,source_path)
 
 				# Continue here If you Like to Test each Individual Sub-File
-				#for name in files:
-				#	fname =  os.path.join(path, name)
-				#	ext = os.path.splitext(fname)[1]
-				#	if ext == '.dsp':
-				#		save(fname,path,source_path)
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						save(fname,path,source_path)
+
 	return
+
+def Create_DSP_IMAGE(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+	for path, subdir, files in os.walk(source_path):
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						DSP_IMAGE(fname,path,source_path)
+
+	return
+
+
+def Create_DATAFRAME(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+	dataframe = []
+	DSP_DATAFRAME = []
+	dfname = '/media/WDSSD/MachineLearning/UTR-2/DATA/compact_dataframe.npy'
+
+	if os.path.isfile(dfname):		
+		os.remove(dfname)
+	fname = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002/stamps.ts'
+	with open(fname) as f:
+		stamps = f.readlines()
+	stamps = [x.strip().split() for x in stamps]  	
+	lst = []
+	for i in stamps:
+		l = [int(i[0]), i[1], int(i[2]), int(i[3])]
+		lst.append(l)
+	stamps = lst	
+
+	idx = 0
+	for path, subdir, files in os.walk(source_path):
+
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						DSP_DATAFRAME = get_compact_DATAFRAME(fname,path,source_path,stamps)
+						dataframe = np.append(dataframe,DSP_DATAFRAME)
+						if len(dataframe) > 100:
+							if not os.path.isfile(dfname):											
+								np.save(dfname,dataframe)
+								print('Saved new Dataframe')
+							else: 							
+								fromfile = np.load(dfname)
+								lst = np.append(fromfile, dataframe)
+								np.save(dfname,lst)	
+								print('Saved appending Dataframe')
+							dataframe = []
+	if len(dataframe): #if is not empty
+		if os.path.isfile(dfname):
+			fromfile = np.load(dfname)
+			lst = np.append(fromfile, dataframe)
+			np.save(dfname,lst)	
+		else:
+			np.save(dfname,dataframe)
+		print('Saved last appending Dataframe')					
+							
+	return
+
+
+
+def Create_DSP_DATAFRAME(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+	dataframe = []
+	DSP_DATAFRAME = []
+	dfname = '/media/WDSSD/MachineLearning/UTR-2/DATA/dataframe.npy'
+
+	if os.path.isfile(dfname):		
+		os.remove(dfname)
+
+	idx = 0
+	for path, subdir, files in os.walk(source_path):
+
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						DSP_DATAFRAME = getDSP_DATAFRAME(fname,path,source_path)
+						dataframe = np.append(dataframe,DSP_DATAFRAME)
+						if len(dataframe) > 20:
+							if not os.path.isfile(dfname):											
+								np.save(dfname,dataframe)
+								print('Saved new Dataframe')
+							else: 							
+								fromfile = np.load(dfname)
+								lst = np.append(fromfile, dataframe)
+								np.save(dfname,lst)	
+								print('Saved appending Dataframe')
+							dataframe = []
+	if len(dataframe): #if is not empty
+		if os.path.isfile(dfname):
+			fromfile = np.load(dfname)
+			lst = np.append(fromfile, dataframe)
+			np.save(dfname,lst)	
+		else:
+			np.save(dfname,dataframe)
+		print('Saved last appending Dataframe')					
+							
+	return
+
+
+
+
+
+
+def Create_DSP_BrightIII(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+
+	idx = 0
+	for path, subdir, files in os.walk(source_path):
+
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						getDSP_BrightIII(fname,path,source_path)
+			
+							
+	return
+
 
 
 def Fetch_DSP_Data(fname,DynamicSpectrum):
@@ -280,8 +664,7 @@ def Fetch_DSP_Data(fname,DynamicSpectrum):
 		DSP=data[17:,0:TNS] # separate the data from the matrix -> -> and can seperate all samples at once! 
 
 		del DynamicSpectrum['dspARR'] # We do not need the HEX-Array no longer
-		DynamicSpectrum.update([ ('DSP_HEADER', DSP_HEADER) , ('DSP', DSP) , ('TNS', TNS)] )
-
+		DynamicSpectrum['DSP_HEADER'], DynamicSpectrum['DSP'], DynamicSpectrum['TNS'] = DSP_HEADER, DSP, TNS
 	else:
 		print('DSP Mode 2 not yet supported')
 
@@ -330,21 +713,46 @@ def float_matrix_to_list_of_numpy_vectors(float_matrix):
     return list_np_vec
 
 def update_block_PARAMS(block):
+	dtfmt='%d.%m.%Y %H.%M.%S'
+	bTimea = datetime.strptime(block['date'] + ' ' + block['time'], dtfmt)
+	if not np.isnan(sum(block['parameters'][1])) and sum(block['parameters'][1]) > 45:
+		bTimeb = bTimea + timedelta(seconds=sum(block['parameters'][1]))
+	elif not np.isnan(sum(block['parameters'][1])) and sum(block['parameters'][1]) < 45:
+		bTimeb = bTimea + timedelta(seconds=45)
+	else:
+		bTimeb = bTimea + timedelta(seconds=45)
+	bTime = (bTimea.strftime(dtfmt),bTimeb.strftime(dtfmt))   
+	block.update({'BurstTime': bTime})
+	return block    
 
-    dtfmt='%d.%m.%Y %H.%M.%S'
-    bTimea = datetime.strptime(block['date'] + ' ' + block['time'], dtfmt)
-    if not np.isnan(sum(block['parameters'][1])):
-        bTimeb = bTimea + timedelta(seconds=sum(block['parameters'][1]))
-    else:
-        bTimeb = bTimea + timedelta(seconds=10)
-    bTime = (bTimea.strftime(dtfmt),bTimeb.strftime(dtfmt))   
-    block.update({'BurstTime': bTime})
-    return block    
+
+def TimeVector(DynamicSpectrum,whos):
+
+	dtfmt='%d.%m.%Y %H.%M.%S'
+
+	if whos == 'TEST':
+		a = datetime.strptime(DynamicSpectrum['Total_Time'][0], dtfmt)
+		b = datetime.strptime(DynamicSpectrum['Total_Time'][1], dtfmt)
+	elif whos == 'TRAIN':
+		a = datetime.strptime(DynamicSpectrum['BurstTime'][0], dtfmt)
+		b = datetime.strptime(DynamicSpectrum['BurstTime'][1], dtfmt)		
+	start = pd.Timestamp(a)
+	end = pd.Timestamp(b)
+	t = np.linspace(start.value, end.value, 6)
+	t = pd.to_datetime(t)	
+	TimeVector = []
+	for i in t:
+		i.to_pydatetime()	
+		i = i.strftime('%H:%M:%S')
+		TimeVector.append(i)
+
+
+	return TimeVector
+
 
 def timestampsIO(file_name):
-
+	# A function to read the timestamps.ts file in blocks of measurement data.
     data = []
-
     try:
         with io.open(file_name, "r", encoding="utf8") as fp:
 
@@ -398,25 +806,68 @@ def plotDSP(DynamicSpectrum):
 	# 'DynamicSpectrum'
 	# Outputs:
 	# NONE
-	img = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (640,480), interpolation = cv2.INTER_CUBIC)
+
+
 	if DynamicSpectrum['Label'] == 'TRAIN':
+		fig, (ax0,ax1) = plt.subplots(ncols=2)
+
+		img = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (1000,500), interpolation = cv2.INTER_CUBIC)		
+		pc0 = ax0.pcolormesh(img,cmap='gist_ncar')
+		ax0.set_yticklabels([8., 13., 18., 23., 28., 33.])
+		ax0.set_ylabel('Frequency [kHz]')
+
+		timevec = TimeVector(DynamicSpectrum,'TEST')
+		ax0.set_xticklabels([])
+		ax0.set_xticklabels(timevec)
+
+		ax0.set_ylabel('Time [HH:MM:SS]')
+		title = 'ORIGINAL' + '  ' + DynamicSpectrum['Total_Time'][0] + ' until '+ DynamicSpectrum['Total_Time'][1] + ' [UT]'
+		ax0.set_title(title)
+
+
+		img = cv2.resize(DynamicSpectrum['DSP_CUTTED'].astype('float64'), (1000,500), interpolation = cv2.INTER_CUBIC)		
+		pc0 = ax1.pcolormesh(img,cmap='gist_ncar')
+		ax1.set_yticklabels([8., 13., 18., 23., 28., 33.])
+		ax1.set_ylabel('Frequency [kHz]')
+
+		timevec = TimeVector(DynamicSpectrum,'TRAIN')
+		ax0.set_xticklabels([])
+		ax0.set_xticklabels(timevec)
+		ax1.set_ylabel('Time [HH:MM:SS]')
 		title = DynamicSpectrum['Label'] + '  ' + DynamicSpectrum['BurstTime'][0] + ' until '+ DynamicSpectrum['BurstTime'][1] + ' [UT]'
+		ax1.set_title(title)
 	else:
+		title = DynamicSpectrum['Label'] + '  ' + DynamicSpectrum['Total_Time'][0] + ' until '+ DynamicSpectrum['Total_Time'][1] + ' [UT]'	
+		fig, (ax0) = plt.subplots(ncols=1)
+
+		img = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (1000,500), interpolation = cv2.INTER_CUBIC)		
+		pc0 = ax0.pcolormesh(img,cmap='gist_ncar')
+		ax0.set_yticklabels([8., 13., 18., 23., 28., 33.])
+		ax0.set_ylabel('Frequency [kHz]')
+		
+		timevec = TimeVector(DynamicSpectrum,'TEST')
+		ax0.set_xticklabels([])
+		ax0.set_xticklabels(timevec)
+		ax0.set_ylabel('Time [HH:MM:SS]')
 		title = DynamicSpectrum['Label'] + '  ' + DynamicSpectrum['Total_Time'][0] + ' until '+ DynamicSpectrum['Total_Time'][1] + ' [UT]'
-
-	fig, (ax0) = plt.subplots(ncols=1)
-	pc0 = ax0.pcolormesh(img,cmap='gist_ncar')
-	#pc0 = ax0.pcolormesh(img,cmap='gray_r')
-
-	ax0.set_title(title)
+		ax0.set_title(title)
 
 	plt.show()
+	
 	return
 
 if os.path.isfile('/media/WDSSD/MachineLearning/UTR-2/savelog.txt'):
     open('/media/WDSSD/MachineLearning/UTR-2/savelog.txt', 'w').close()
 
-source_path = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002_forTesting' 
-Create_DSP_NPY_data(source_path)
+source_path = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002_forTesting'
+#Create_DSP_NPY_data(source_path)
+#Create_DSP_DATAFRAME(source_path)
 
+
+#Create_DSP_BrightIII(source_path)
+
+Create_DSP_IMAGE(source_path)
+
+
+#Create_DATAFRAME(source_path)
 
