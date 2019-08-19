@@ -16,6 +16,7 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import cv2
 import os
+from tqdm import tqdm      # a nice pretty percentage bar for tasks. Thanks to viewer Daniel BA1/4hler for this suggestion
 
 from keras import backend as K
 
@@ -75,9 +76,26 @@ def get_callbacks(filepath, patience=2):
 	return [es, msave]
 file_path = ".model_weights.hdf5"
 callbacks = get_callbacks(filepath=file_path, patience=5)
-CNN()
 
-def normalize(data):
+def normalize(data,who):
+	mmrange = []
+	for i in data:
+		if i.shape:
+			armax = np.amax(i)
+			armin = np.amin(i)
+			mmrange.append([armax,armin])
+	armax = np.amax(mmrange)
+	armin = np.amin(mmrange)
+
+	normdata_array = []
+	for normdata in data:
+		normdata = (normdata - armin) / (armax - armin)	
+		normdata_array.append(normdata)
+
+	del data
+	return normdata_array
+
+def normalize_B4(data):
 	mmrange = []
 	for i in data:
 		if i['DSP'].shape[1]:
@@ -97,30 +115,33 @@ def normalize(data):
 
 def get_TRAIN_data():
 	fname = '/media/WDSSD/MachineLearning/UTR-2/DATA/compact_dataframe_all_1000.npy'
-	fname = '/media/WDSSD/MachineLearning/UTR-2/DATA/compact_dataframe.npy'
-	X = np.load(fname)
-	X = normalize(X)
+	#fname = '/media/WDSSD/MachineLearning/UTR-2/DATA/compact_dataframe.npy'
+	X = np.load(fname,allow_pickle=True)
+
+	#X = normalize_B4(X) #either normalize before
 	train = []
+
 	label = []
 	for i in X:
-		if i['DSP'].shape[1]:
-			if i['Label'] == 'BG':
-				arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
-				arr = arr.reshape((240, 240,1))
-				train.append(arr)
-				label.append([1,0,0])
-			elif i['Label'] == '3':
-				arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
-				arr = arr.reshape((240, 240,1))
-				train.append(arr)
-				label.append([0,1,0])
-			elif i['Label'] == 'B3':
-				arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
-				arr = arr.reshape((240, 240,1))
-				train.append(arr)
-				label.append([0,0,1])
+		if i['ID']=='TRAIN':
+			if i['DSP'].shape[1]:
+				if i['Label'] == 'BG':
+					arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
+					arr = arr.reshape((240, 240,1))
+					train.append(arr)
+					label.append([1,0,0])
+				elif i['Label'] == '3':
+					arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
+					arr = arr.reshape((240, 240,1))
+					train.append(arr)
+					label.append([0,1,0])
+				elif i['Label'] == 'B3':
+					arr = cv2.resize(i['DSP'].astype('float64'), (240,240), interpolation = cv2.INTER_CUBIC)
+					arr = arr.reshape((240, 240,1))
+					train.append(arr)
+					label.append([0,0,1])
 
-
+	train = normalize(train,'TRAIN')	# or normalize after cv2 transformation.  test if worse evaluation accuracy, but better test accuracy is true.		
 	train = np.asarray(train)
 	label = np.asarray(label)    		
 	return train, label		
@@ -132,12 +153,13 @@ if os.path.exists('/home/stefan/Dokumente/MachineLearning/UTR2_Python/' + MODEL_
 	print('Loaded: ' + MODEL_NAME)
 
 
-	X_valid = np.load('/media/WDSSD/MachineLearning/UTR-2/X_valid.npy')	
-	y_valid = np.load('/media/WDSSD/MachineLearning/UTR-2/y_valid.npy')
+	X_valid = np.load('/media/WDSSD/MachineLearning/UTR-2/X_valid.npy',allow_pickle=True)	
+	y_valid = np.load('/media/WDSSD/MachineLearning/UTR-2/y_valid.npy',allow_pickle=True)
 
 else:
 	model=CNN()
 	X, y = get_TRAIN_data()
+
 	X_train_cv, X_valid, y_train_cv, y_valid = train_test_split(X, y, random_state=1, train_size=0.75)
 	model.fit(X_train_cv, y_train_cv,
 		batch_size=24,
@@ -152,6 +174,74 @@ else:
 #score = model.evaluate(X_valid, y_valid, verbose=1)
 #print('Test loss:', score[0])
 #print('Test accuracy:', score[1])
+
+
+
+
+fname = '/media/WDSSD/MachineLearning/UTR-2/DATA/test_dataframe.npy'
+X = np.load(fname,allow_pickle=True)
+
+
+width = round(X[9]['DSP'].shape[1]/4)
+
+X_test = cv2.resize(X[9]['DSP'].astype('float64'), (width,240), interpolation = cv2.INTER_CUBIC)
+
+X_norm = (X_test - np.amin(X_test)) / (np.amax(X_test) - np.amin(X_test))	
+
+
+
+
+
+
+fig, ax = plt.subplots(1)
+ax.imshow(np.flipud(X_norm),cmap='jet')
+plt.show()
+
+
+
+fig, ax = plt.subplots(1)
+ax.imshow(np.flipud(X_norm[:,320:560]),cmap='jet')
+plt.show()
+
+X_norm = X_norm[:,320:560].reshape((-1, 240, 240, 1))
+print(model.predict(X_norm))
+
+
+
+
+
+'''
+pred = []
+for i in tqdm(range(X_norm.shape[1]-240)):
+	p = model.predict(X_norm[:,i:i+240].reshape((-1, 240, 240, 1)))
+	pred.append(p)
+
+np.save('/media/WDSSD/MachineLearning/UTR-2/DATA/predictions.npy',pred,)
+
+
+fig, (ax0,ax1) = plt.subplots(ncols=2)
+ax1.imshow(np.flipud(X_norm),cmap='jet')
+ax2.plot(pred)
+
+plt.show()
+	
+'''
+
+
+
+
+
+'''
+for idx in range(12):
+	img = np.flipud(X_valid[idx].reshape((240, 240)))
+	fig, ax = plt.subplots(1)
+	ax.imshow(img,cmap='jet')
+	plt.show()
+'''
+
+
+
+
 
 
 def heatmap(idx):
@@ -238,11 +328,63 @@ def layer_activation(idx):
 	return
 
 
+
+
+def lootBoxes():
+	step= 204
+	stop_f = 1020 # maximum frequency index 
+	stop_t = X[9]['DSP'].shape[1] # maximum time index
+
+	f = np.arange(0, stop_f+step, step, dtype=None)
+	t = np.arange(0, stop_t+step, step, dtype=None)
+
+	delta_f = 50 # half window height
+	delta_t = 50 # half window width
+
+	for i in f:
+	    for j in t:
+	        print(i,j)
+	        #print(i-delta_f,i+delta_f,j-delta_t,j+delta_t)
+	        if i-delta_f >= 0 and i+delta_f <= stop_f and j-delta_t >= 0 and j+delta_t <=stop_t:
+	            box = X[9]['DSP'][i-delta_f:i+delta_f,j-delta_t:j+delta_t]            
+	            
+	        elif i-delta_f < 0 and j-delta_t >= 0 and j+delta_t <=stop_t:
+	            box = X[9]['DSP'][0:i+delta_f,j-delta_t:j+delta_t]
+	            
+	        elif i-delta_f < 0 and j-delta_t < 0:
+	            box = X[9]['DSP'][0:i+delta_f,0:j+delta_t]
+	            
+	        elif i-delta_f >= 0 and i+delta_f <= stop_f and j-delta_t < 0:  
+	            box = X[9]['DSP'][i-delta_f:i+delta_f,0:j+delta_t]
+	            
+	        elif i+delta_f > stop_f and j-delta_t >= 0 and j+delta_t <=stop_t:
+	            box = X[9]['DSP'][i-delta_f:stop_f,j-delta_t:j+delta_t]   
+	            
+	        elif i+delta_f > stop_f and j+delta_t >stop_t:
+	            box = X[9]['DSP'][i-delta_f:stop_f,j-delta_t:stop_t]   
+
+	        elif i-delta_f >= 0 and i+delta_f <= stop_f and j+delta_t >stop_t:  
+	            box = X[9]['DSP'][i-delta_f:i+delta_f,j-delta_t:stop_t]
+	            
+	        elif i-delta_f >= 0 and i+delta_f > stop_f and j-delta_t < 0:
+	            box = X[9]['DSP'][i-delta_f:stop_f,0:j+delta_t]
+	        
+	        elif i-delta_f < 0 and j+delta_t > stop_t:
+	            box = X[9]['DSP'][0:i+delta_f,j-delta_t:stop_t]
+            
+
+
+	return
+
+
+
+
+'''
 for idx in range(156):	
 
 	heatmap(idx)
-
-
+	layer_activation(idx)
+'''
 
 
 #predicted_test=model.predict_proba(X_test)

@@ -162,29 +162,54 @@ def DSP_IMAGE(fname,path,source_path):
 	print(DynamicSpectrum['start_time'])
 	title = DynamicSpectrum['Total_Time'][0] + ' until '+ DynamicSpectrum['Total_Time'][1] + ' [UT]'	
 	fig,ax = plt.subplots()	
-	ax.pcolormesh(DynamicSpectrum['DSP'],cmap='gist_ncar')
-	ax.set_yticklabels([])
-	ax.set_yticklabels([8., 13., 18., 23., 28., 33.])
-	ax.set_ylabel('Frequency [kHz]')		
-	timevec = TimeVector(DynamicSpectrum,'TEST')
-	ax.set_xticklabels([])
+	img = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (640,240), interpolation = cv2.INTER_CUBIC)
+	ax.pcolormesh(img ,cmap='gist_ncar')
+	#ax.set_yticklabels([])
+	#ax.set_yticklabels([8., 13., 18., 23., 28., 33.])
+	#ax.set_ylabel('Frequency [kHz]')		
+	#timevec = TimeVector(DynamicSpectrum,'TEST')
+	#ax.set_xticklabels([])
 	#ax.axis('tight')
 	#ax.axis('off')
-	#fig.subplots_adjust(top=1.0)
-	#fig.subplots_adjust(bottom=0.0)
-	#fig.subplots_adjust(left=0.0)
-	#fig.subplots_adjust(right=1.0)
-	ax.set_xticklabels(timevec)
-	ax.set_ylabel('Time [HH:MM:SS]')
-	ax.set_title(title)
+	fig.subplots_adjust(top=1.0)
+	fig.subplots_adjust(bottom=0.0)
+	fig.subplots_adjust(left=0.0)
+	fig.subplots_adjust(right=1.0)
+	#ax.set_xticklabels(timevec)
+	#ax.set_ylabel('Time [HH:MM:SS]')
+	#ax.set_title(title)
 
 	plt.show()
 
-	
-
-
 	return
 
+def YOLO_image(fname,path,source_path):
+
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+
+
+
+	DynamicSpectrum['DSP'] = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (640,240), interpolation = cv2.INTER_CUBIC)
+	DynamicSpectrum['DSP'] = DynamicSpectrum['DSP'].reshape((640, 240,1))
+
+	return DynamicSpectrum
+
+def TEST_image(fname,path,source_path):
+
+	DynamicSpectrum = Load_DSP_File(fname) # get the complete Array and return a list of valuable elements
+	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
+	DynamicSpectrum = Total_Time(DynamicSpectrum)
+	DynamicSpectrum['ID'] = 'TRAIN'
+
+	#width = round(DynamicSpectrum['DSP'].shape[1]/4)
+	#DynamicSpectrum['DSP'] = cv2.resize(DynamicSpectrum['DSP'].astype('float64'), (width,240), interpolation = cv2.INTER_CUBIC)
+
+
+	#DynamicSpectrum['DSP'] = DynamicSpectrum['DSP'].reshape((640, 240,1))
+
+	return DynamicSpectrum
 
 
 
@@ -252,10 +277,9 @@ def get_compact_DATAFRAME(fname,path,source_path,stamps):
 	DynamicSpectrum = Fetch_DSP_Data(fname,DynamicSpectrum)
 	DynamicSpectrum = Total_Time(DynamicSpectrum)
 
-
-
 	DSP_DATAFRAME = []
 	DSP_TMP = np.copy(DynamicSpectrum['DSP'])
+	DynamicSpectrum['ID'] = 'TRAIN' #mark if train or test data
 
 
 	for tstamps in stamps:
@@ -270,7 +294,6 @@ def get_compact_DATAFRAME(fname,path,source_path,stamps):
 			DSP_DATAFRAME.append(tmp)
 			del tmp
 	del DSP_TMP	
-
 
 	fn = os.path.basename(fname)
 	name = os.path.splitext(fn)[0]		
@@ -434,7 +457,7 @@ def save_File(DynamicSpectrum,name,destination_path,sdir):
 		np.save(dfname,DynamicSpectrum)		
 		msg = f"'{name}': Saved"
 	else:
-		dataframe = np.load(dfname)
+		dataframe = np.load(dfname,allow_pickle=True)
 		lst = np.append(dataframe, DynamicSpectrum)
 		np.save(dfname,lst)		
 		
@@ -494,6 +517,66 @@ def Create_DSP_IMAGE(source_path):
 	return
 
 
+def Create_YOLO(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+
+
+	dfname = '/media/WDSSD/MachineLearning/UTR-2/DATA/yolo_dataframe.npy'
+
+
+	yolo_dataframe = []
+	for path, subdir, files in os.walk(source_path):
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						DSP = YOLO_image(fname,path,source_path)
+						yolo_dataframe.append(DSP)
+	np.save(dfname, yolo_dataframe)					
+	return
+
+def Create_TEST(source_path):
+	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
+	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
+	# Testing:		If not Burst is in it, so it can be used to Evaluate or Test the Data
+	# Inputs:
+	# 'source_path'		The Path Parent Path to the .dsp Files
+	# Outputs:
+	# NONE			It just stores files on the HD.
+
+
+	dfname = '/media/WDSSD/MachineLearning/UTR-2/DATA/test_dataframe.npy'
+
+
+	yolo_dataframe = []
+	for path, subdir, files in os.walk(source_path):
+		if not os.path.basename(os.path.normpath(path)) == 'Calibration':
+			if files:
+				#saveFolder(files,path,source_path)
+
+				# Continue here If you Like to Test each Individual Sub-File
+				for name in files:
+					fname =  os.path.join(path, name)
+					ext = os.path.splitext(fname)[1]
+					if ext == '.dsp':
+						DSP = TEST_image(fname,path,source_path)
+						yolo_dataframe.append(DSP)
+	np.save(dfname, yolo_dataframe)					
+	return
+
+
+
 def Create_DATAFRAME(source_path):
 	# A Function that loads any .dsp Data from a given source Path and converts them into .npy Arrays for:
 	# Training: 	If a Burst in the .dsp File according the the timestamp.ts File
@@ -537,14 +620,14 @@ def Create_DATAFRAME(source_path):
 								np.save(dfname,dataframe)
 								print('Saved new Dataframe')
 							else: 							
-								fromfile = np.load(dfname)
+								fromfile = np.load(dfname,allow_pickle=True)
 								lst = np.append(fromfile, dataframe)
 								np.save(dfname,lst)	
 								print('Saved appending Dataframe')
 							dataframe = []
 	if len(dataframe): #if is not empty
 		if os.path.isfile(dfname):
-			fromfile = np.load(dfname)
+			fromfile = np.load(dfname,allow_pickle=True)
 			lst = np.append(fromfile, dataframe)
 			np.save(dfname,lst)	
 		else:
@@ -589,14 +672,14 @@ def Create_DSP_DATAFRAME(source_path):
 								np.save(dfname,dataframe)
 								print('Saved new Dataframe')
 							else: 							
-								fromfile = np.load(dfname)
+								fromfile = np.load(dfname,allow_pickle=True)
 								lst = np.append(fromfile, dataframe)
 								np.save(dfname,lst)	
 								print('Saved appending Dataframe')
 							dataframe = []
 	if len(dataframe): #if is not empty
 		if os.path.isfile(dfname):
-			fromfile = np.load(dfname)
+			fromfile = np.load(dfname,allow_pickle=True)
 			lst = np.append(fromfile, dataframe)
 			np.save(dfname,lst)	
 		else:
@@ -860,14 +943,23 @@ if os.path.isfile('/media/WDSSD/MachineLearning/UTR-2/savelog.txt'):
     open('/media/WDSSD/MachineLearning/UTR-2/savelog.txt', 'w').close()
 
 source_path = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002_forTesting'
+
+
 #Create_DSP_NPY_data(source_path)
 #Create_DSP_DATAFRAME(source_path)
 
 
 #Create_DSP_BrightIII(source_path)
 
-Create_DSP_IMAGE(source_path)
+#Create_DSP_IMAGE('/media/WDSSD/MachineLearning/UTR-2/EXTRACT_Test')
 
 
-#Create_DATAFRAME(source_path)
+#Create_YOLO('/media/WDSSD/MachineLearning/UTR-2/EXTRACT_Test')
+
+
+fname = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002'
+#fname = '/media/WDSSD/MachineLearning/UTR-2/UTR-2 2002_forTesting'
+Create_DATAFRAME(fname)
+fname = '/media/WDSSD/MachineLearning/UTR-2/EXTRACT_Test'
+#Create_TEST(fname)
 
